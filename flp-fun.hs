@@ -47,7 +47,7 @@ findLeaf nodes numbers = findLeafHelper nodes numbers 0 0 where
     | typ == "Leaf" && skips > 0 && level >= levelToFind = 
         findLeafHelper xs numbers (skips - 1) levelToFind
     | typ == "Leaf" && skips == 0 && level == levelToFind = 
-         value
+        value
     | otherwise = findLeafHelper xs numbers skips levelToFind
     where comparisonNumber = numbers !! index
 
@@ -66,7 +66,7 @@ main = do
             let transformedList = transformList (pridejUroven (rozdelText treeContents))
             let doubleList = convertToDoubleLists newDataContents
             let result = map (findLeaf transformedList) doubleList
-            print result
+            mapM_ putStrLn result
         ("-2":trainingDataFile:_) -> do -- Druhý podúkol
             trainingDataContents <- loadFile trainingDataFile
             putStrLn "Data ze souboru obsahujici trenovaci data:"
