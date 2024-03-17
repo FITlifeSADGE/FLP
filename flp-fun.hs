@@ -6,6 +6,8 @@ import Debug.Trace (trace)
 import Data.Maybe
 import Data.Function
 import Text.Read 
+import Control.Monad
+
 
 type NodeData = (String, Int, String, Int)
 
@@ -142,22 +144,102 @@ calculateBestGini inputData =
     in iterateColumns 1 (1, -1, -1) -- Inicializace s hodnotou Gini 1, což je větší než jakákoli možná hodnota
 
 --Funkce pro výpočet průměru mezi dvěma řádky
-averageBetweenRows :: String -> Double
+averageBetweenRows :: String -> (Double, GiniRecord)
 averageBetweenRows inputData = 
   let
     -- Volání funkce calculateBestGini a získání výsledků
-    (giniIndex, position, column) = calculateBestGini inputData
+    giniRecord@(giniIndex, position, column) = calculateBestGini inputData
     -- Seřazení řádků podle zjištěného optimálního sloupce
     sortedData = sortLinesByColumn inputData column
     sortedLines = lines sortedData
     -- Získání hodnot ze zadaných řádků
-    lineValues1 = read . head . splitOn "," $ sortedLines !! position :: Double
-    lineValues2 = read . head . splitOn "," $ sortedLines !! (position + 1) :: Double
+    lineValue1 = read ((splitOn "," $ sortedLines !! position) !! (column-1)) :: Double
+    lineValue2 = read ((splitOn "," $ sortedLines !! (position + 1)) !! (column-1)) :: Double
     -- Výpočet průměru mezi dvěma řádky
-    averageValues = (lineValues1 + lineValues2) / 2
+    averageValue = (lineValue1 + lineValue2) / 2
   in
     -- Vrátí průměr všech průměrů - pokud chcete jinou agregaci, upravte tuto část
-    averageValues
+    (averageValue, giniRecord)
+
+
+-- Předpokládejme, že existuje funkce getClass, která vrací třídu řádku (poslední sloupec)
+getClass :: String -> String
+getClass = last . splitOn ","
+
+-- Funkce pro kontrolu, zda všechny řádky v seznamu mají stejnou třídu
+allSameClass :: [String] -> Bool
+allSameClass rows = all (== head classes) (tail classes)
+  where classes = map getClass rows
+
+-- Pomocná funkce pro rozdělení a analýzu skupin
+splitAndAnalyze :: [String] -> IO ()
+splitAndAnalyze inputData = do
+  unless (allSameClass inputData) $ do
+    let (averageValue, (_, position, column)) = averageBetweenRows (unlines inputData)
+    putStrLn $ "Průměr mezi dvěma řádky: " ++ show averageValue
+    let sortedData = sortLinesByColumn (unlines inputData) column
+    let sortedLines = lines sortedData
+    let (leftGroup, rightGroup) = splitAt (position + 1) sortedLines
+    
+    putStrLn "Zpracovávám levou skupinu:"
+    splitAndAnalyze leftGroup
+    
+    putStrLn "Zpracovávám pravou skupinu:"
+    splitAndAnalyze rightGroup
+
+
+splitDataByPosition :: String -> IO ()
+splitDataByPosition inputData = do
+  -- Rekurzivně zpracujte data a získáte levou a pravou skupinu
+  processData (lines inputData) 0 -- Začněte proces s celým seznamem řádků
+
+
+
+--Předpokládejme, že máte již implementovány ostatní potřebné funkce...
+
+-- processData :: [String] -> Int -> IO ()
+-- processData inputData depth = do
+--   unless (allSameClass inputData || null inputData) $ do
+--     let (averageValue, (giniIndex, position, column)) = averageBetweenRows (unlines inputData)
+--     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Zpracovávám skupinu" ++ show inputData
+--     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Průměr mezi dvěma řádky: " ++ show averageValue
+--     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Nejlepší Gini index: " ++ show giniIndex
+--     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Pozice pro rozdělení: " ++ show position
+--     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Sloupec pro seřazení: " ++ show (column - 1)
+
+--     let sortedData = sortLinesByColumn (unlines inputData) column
+--     let sortedLines = lines sortedData
+
+--     let (leftGroup, rightGroup) = splitAt (position + 1) sortedLines
+
+--     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Zpracovávám levou skupinu"
+--     processData leftGroup (depth + 1)
+
+--     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Zpracovávám pravou skupinu"
+--     processData rightGroup (depth + 1)
+--   when (allSameClass inputData && not (null inputData)) $ do
+--     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Všechny řádky ve skupině mají stejnou třídu " ++ getClass (head inputData)
+
+processData :: [String] -> Int -> IO ()
+processData inputData depth = do
+  unless (allSameClass inputData || null inputData) $ do
+    -- Předpokládejme, že averageBetweenRows je nyní upravena na IO operaci
+    let (averageValue, (giniIndex, position, column)) = averageBetweenRows (unlines inputData)
+    let indentation = replicate (depth * 2) ' '  -- Dvě mezery za každou úroveň hloubky
+    putStrLn $ indentation ++ "Node: " ++ show (column - 1) ++ ", " ++ show averageValue
+
+    let sortedData = sortLinesByColumn (unlines inputData) column
+    let sortedLines = lines sortedData
+
+    let (leftGroup, rightGroup) = splitAt (position + 1) sortedLines
+
+    -- Rekurzivní zpracování levé a pravé skupiny
+    processData leftGroup (depth + 1)
+    processData rightGroup (depth + 1)
+  when (allSameClass inputData && not (null inputData)) $ do
+    let indentation = replicate (depth * 2) ' '  -- Dvě mezery za každou úroveň hloubky
+    putStrLn $ indentation ++ "Leaf: " ++ getClass (head inputData)
+
 
 
 main :: IO ()
@@ -173,8 +255,8 @@ main = do
             mapM_ putStrLn result
         ("-2":trainingDataFile:_) -> do -- Druhý podúkol
             trainingDataContents <- loadFile trainingDataFile
-            putStrLn trainingDataContents
-            let average = averageBetweenRows trainingDataContents
-            print ("Best threshold for Node 0: " ++ show(average))
+            finito <- splitDataByPosition trainingDataContents
+            putStrLn "Konec"
+
             
         _ -> putStrLn "Nespravne argumenty"
