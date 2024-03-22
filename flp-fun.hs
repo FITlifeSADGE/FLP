@@ -17,48 +17,55 @@ loadFile filePath = do
     contents <- readFile filePath
     return contents
 
-rozdelText :: String -> [String]
-rozdelText text = splitOn "\n" text
+-- Přidává odsazení řetězce pro zjištění, ke kterému uzlu co patří
+addIndent :: [String] -> [(String, Int)]
+addIndent strtings = map createIntednt strtings where
+  createIntednt str = (str, length (takeWhile (==' ') str) `div` 2) -- vydělí počet mezer 2 (dle zadání je jedna úroveň 2 mezery)
 
-pridejUroven :: [String] -> [(String, Int)]
-pridejUroven a = map (\a -> (a, length (takeWhile (==' ') a) `div` 2)) a
+-- Zjistí, jestli je uzel nebo list
+whatNode :: String -> String
+whatNode str
+  | "Node" `isPrefixOf` str = "Node"
+  | otherwise = "Leaf"
 
-transformList :: [(String, Int)] -> [NodeData]
-transformList = map parseElement
+getNumber :: String -> [[Char]] -> Int
+getNumber str restString
+  | "Node" `isPrefixOf` str = read (head restString) :: Int -- Uzel má index na prvním místě (["0", "690.585"])
+  | otherwise = -1
 
-parseElement :: (String, Int) -> NodeData
-parseElement (s, lvl) =
-  let (prefix:rest) = words s
-      (nodeType, restString) = case prefix of
-        "Node:" -> ("Node", unwords rest)
-        "Leaf:" -> ("Leaf", unwords rest)
-        _ -> error "Unrecognized pattern"
-      splitRest = splitOn ", " restString
-      number = if nodeType == "Node" then read (head splitRest) :: Int else -1 -- Leaf nemá index příznaku
-      value = if nodeType == "Node" then splitRest !! 1 else head splitRest
-  in (nodeType, number, value, lvl)
+getValue :: String -> [[Char]] -> String
+getValue str restString
+  | "Node" `isPrefixOf` str = restString !! 1 -- Uzel má hodnotu na druhém místě (["0", "690.585"])
+  | otherwise = head restString
 
-findLeaf :: [NodeData] -> [Double] -> String
-findLeaf nodes numbers = findLeafHelper nodes numbers 0 0 where
-  findLeafHelper :: [NodeData] -> [Double] -> Int -> Int -> String
-  findLeafHelper [] _ _ _ = error "No leaf found"
-  findLeafHelper _ [] _ _ = error "No leaf found"
-  findLeafHelper nodes@((typ,index,value,level):xs) numbers skips levelToFind
-    | typ == "Node" && comparisonNumber >= read value && skips == 0 && level == levelToFind = 
-        findLeafHelper xs numbers 1 (level + 1)
-    | typ == "Node" && comparisonNumber < read value && skips == 0 && level == levelToFind = 
-        findLeafHelper xs numbers 0 (level + 1)
-    | typ == "Leaf" && skips > 0 && level >= levelToFind = 
-        findLeafHelper xs numbers (skips - 1) levelToFind
-    | typ == "Leaf" && skips == 0 && level == levelToFind = 
-        value
-    | otherwise = findLeafHelper xs numbers skips levelToFind
-    where comparisonNumber = numbers !! index
 
-convertToDoubleLists :: String -> [[Double]]
-convertToDoubleLists contents = do
-  doubleList <- map (map read . splitOn ",") $ lines contents
-  return doubleList
+createNodeData :: (String, Int) -> NodeData
+createNodeData (str, indent) = -- str je něco jako "Node: 0, 690.585"
+  let wrds = words str -- rozdělím na ["Node:","0,","690.585"]
+      first = head wrds -- Typ uzlu
+      rest = tail wrds -- Zbytek
+      nodeType = whatNode first -- Zjištění typu uzlu/odstranění ':'
+      restString = map (filter (/=',')) rest -- Odstranění ',' z čísel (abych měl něco jako ["0", "690.585"] místo ["0,", "690.585"])
+      number = getNumber nodeType restString -- Získá index příznaku uzlu
+      value = getValue nodeType restString -- Získá název listu/hodnotu ulzu
+  in (nodeType, number, value, indent)
+
+-- Rovnou převede vstupní data ze stringu na čísla
+findLeaf :: [NodeData] -> [String] -> String
+findLeaf nodes numbers = findLeafIdk nodes (map read numbers :: [Double]) 0 0 -- Pošlu sem všechny uzly a čísla ze vstupu, první 0 značí, že nebudu skipovat nic, druhá 0 je odsazení, které hledám (0 je kořen)
+
+findLeafIdk :: [NodeData] -> [Double] -> Int -> Int -> String
+findLeafIdk ((typ, index, value, indent):xs) numbers skips indentToFind
+  | typ == "Node" && comparisonNumber >= read value && skips == 0 && indent == indentToFind = 
+      findLeafIdk xs numbers 1 (indent + 1) -- Pokud je hodnota na vstupu vyšší, než hodnota uzlu, posouvám se ve stromu doprava = hledám až 2. výskyt uzlu s odsazením + 1
+  | typ == "Node" && comparisonNumber < read value && skips == 0 && indent == indentToFind = 
+      findLeafIdk xs numbers 0 (indent + 1) -- Pokud je hodnota na vstupu nižší, než hodnota uzlu, posouvám se ve stromu doleva = hledám 1. výskyt uzlu s odsazením + 1
+  | typ == "Leaf" && skips > 0 && indent >= indentToFind = 
+      findLeafIdk xs numbers (skips - 1) indentToFind -- Pokud možná jsem našel list na správné úrovní, ale mám ještě skipovat = hledám dál, ale příště už neskipuju
+  | typ == "Leaf" && skips == 0 && indent == indentToFind = 
+      value -- našel jsem list na správné úrovni a nemám skipovat = vracím jeho název
+  | otherwise = findLeafIdk xs numbers skips indentToFind -- Pokud nic z toho neplatí, hledám dál
+  where comparisonNumber = numbers !! index -- Čísla se neberou postupně ze vstupu, ale podle indexu příznaku uzlu
 
 ---- funkce pro druhý podúkol
 
@@ -156,7 +163,8 @@ averageBetweenRows inputData =
     lineValue1 = read ((splitOn "," $ sortedLines !! position) !! (column-1)) :: Double
     lineValue2 = read ((splitOn "," $ sortedLines !! (position + 1)) !! (column-1)) :: Double
     -- Výpočet průměru mezi dvěma řádky
-    averageValue = (lineValue1 + lineValue2) / 2
+    averageValueBefore = (lineValue1 + lineValue2) / 2
+    averageValue = (fromIntegral (round (averageValueBefore * 1000)) :: Double) / 1000
   in
     -- Vrátí průměr všech průměrů - pokud chcete jinou agregaci, upravte tuto část
     (averageValue, giniRecord)
@@ -195,31 +203,6 @@ splitDataByPosition inputData = do
 
 
 
---Předpokládejme, že máte již implementovány ostatní potřebné funkce...
-
--- processData :: [String] -> Int -> IO ()
--- processData inputData depth = do
---   unless (allSameClass inputData || null inputData) $ do
---     let (averageValue, (giniIndex, position, column)) = averageBetweenRows (unlines inputData)
---     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Zpracovávám skupinu" ++ show inputData
---     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Průměr mezi dvěma řádky: " ++ show averageValue
---     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Nejlepší Gini index: " ++ show giniIndex
---     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Pozice pro rozdělení: " ++ show position
---     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Sloupec pro seřazení: " ++ show (column - 1)
-
---     let sortedData = sortLinesByColumn (unlines inputData) column
---     let sortedLines = lines sortedData
-
---     let (leftGroup, rightGroup) = splitAt (position + 1) sortedLines
-
---     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Zpracovávám levou skupinu"
---     processData leftGroup (depth + 1)
-
---     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Zpracovávám pravou skupinu"
---     processData rightGroup (depth + 1)
---   when (allSameClass inputData && not (null inputData)) $ do
---     putStrLn $ replicate depth ' ' ++ "Hloubka " ++ show depth ++ ": Všechny řádky ve skupině mají stejnou třídu " ++ getClass (head inputData)
-
 processData :: [String] -> Int -> IO ()
 processData inputData depth = do
   unless (allSameClass inputData || null inputData) $ do
@@ -246,17 +229,14 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ("-1":treeFile:newDataFile:_) -> do -- První podúkol
-            treeContents <- loadFile treeFile
-            newDataContents <- loadFile newDataFile
-            let transformedList = transformList (pridejUroven (rozdelText treeContents))
-            let doubleList = convertToDoubleLists newDataContents
-            let result = map (findLeaf transformedList) doubleList
+        ("-1":treeFile:dataFile:_) -> do -- První podúkol
+            treeContent <- loadFile treeFile
+            dataContent <- loadFile dataFile
+            let transformedList = map createNodeData (addIndent (lines treeContent)) -- Každý uzel bude mít tento tvar: ("Node",0,"690.585",0) aka typ, index, hodnota, indent
+            let fixedDataContent = map (splitOn ",") (lines dataContent)
+            let result = map (findLeaf transformedList) fixedDataContent
             mapM_ putStrLn result
-        ("-2":trainingDataFile:_) -> do -- Druhý podúkol
-            trainingDataContents <- loadFile trainingDataFile
-            finito <- splitDataByPosition trainingDataContents
-            putStrLn "Konec"
-
-            
+        ("-2":dataFile:_) -> do -- Druhý podúkol
+            dataContent <- loadFile dataFile
+            splitDataByPosition dataContent
         _ -> putStrLn "Nespravne argumenty"
