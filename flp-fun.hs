@@ -7,6 +7,7 @@ import Data.Maybe
 import Data.Function
 import Text.Read 
 import Control.Monad
+import Data.Ord
 
 
 type NodeData = (String, Int, String, Int)
@@ -69,45 +70,50 @@ findLeafIdk ((typ, index, value, indent):xs) numbers skips indentToFind
 
 ---- funkce pro druhý podúkol
 
--- Funkce pro rozdělení řetězce podle daného znaku
-splitBy :: Char -> String -> [String]
-splitBy delimiter = foldr f [[]] 
-    where f c l@(x:xs) | c == delimiter = []:l
-                       | otherwise = (c:x):xs
+getColValue :: Int -> [String] -> Double
+getColValue column inputRow = read (inputRow !! (column - 1)) :: Double
 
--- Funkce pro převod řetězce na řádky a jejich seřazení podle zadaného sloupce
+convertToOneString :: [[String]] -> String
+convertToOneString idk = unlines $ map (intercalate ",") idk -- spojím seznam stringů podle znaku ',' a vytvořím jeden string
+
+-- Seřadí řádky podle daného sloupce a vrátí je opět jako jeden dlouhý řetězec
 sortLinesByColumn :: String -> Int -> String
-sortLinesByColumn input column = unlines $ map snd $ sortBy (compare `on` fst) mappedLines
-    where
-        linesList = lines input
-        splitLines = map (splitBy ',') linesList
-        mappedLines = [(readMaybe (splitLines !! row !! (column - 1)) :: Maybe Double, linesList !! row) | row <- [0..length splitLines - 1]]
+sortLinesByColumn input column = let
+    linesList = lines input -- rozdělím na řádky
+    splitLines = map (splitOn ",") linesList -- rozdělím řádky na jednotlivá čísla
+    sortedLines = sortBy (comparing (getColValue column)) splitLines -- seřadím řádky podle daného sloupce
+  in convertToOneString sortedLines -- opět spojím řádky do jednoho řetězce
+
 ---- sem se to seřadí podle daného sloupce
 
--- Funkce pro extrakci tříd z řádků a spočítání jejich výskytů
-countClasses :: [String] -> [Int]
-countClasses input = map snd . map (\x -> (head x, length x)) . group . sort $ classes
-  where classes = map (last . splitBy ',') input
 
--- Funkce pro výpočet Giniho indexu
+---- všechno možný pro výpočet gini indexu a výběr nejlepšího prahu
+countClasses :: [String] -> [Int]
+countClasses input = let
+    -- Vytvoří seznam tříd
+    classes = map (last . splitOn ",") input -- vytvoří něco takovýho ["Class10","Class4","Class4","Class7","Class6","Class6","Class3","Class10","Class1","Class5"]
+    -- Seřadí třídy a spočítá výskyty
+    sortedClasses = sort classes -- seřadím ["Class1","Class10","Class10","Class3","Class4","Class4","Class5","Class6","Class6","Class7"]
+    groupedClasses = group sortedClasses -- seskupím stejné classy dohromady [["Class1"],["Class10","Class10"],["Class3"],["Class4","Class4"],["Class5"],["Class6","Class6"],["Class7"]]
+    countedClasses = map length groupedClasses -- spočítám, kolik tam je jednotlivých tříd
+    in countedClasses -- [1,2,1,2,1,2,1]
+
+calculateGiniSquare :: Int -> Int -> Double
+calculateGiniSquare total count = (fromIntegral count / fromIntegral total) ^ 2
+
+-- V podstatě si rozdělím vstup na 2 skupiny, podle toho spočítám gini index a vrátím vážený průměr
 calculateGini :: [String] -> [String] -> Double
 calculateGini leftInput rightInput = let
-    -- Vypočítá výskyty tříd pro oba seznamy
-    leftCounts = countClasses  leftInput
-    rightCounts = countClasses rightInput
-    -- Vypočítá počet všech tříd
-    leftTotal = sum leftCounts
-    rightTotal = sum rightCounts
-    -- Vypočítá Giniho index pro oba seznamy
-    leftGini = 1 - sum (map (\x -> (fromIntegral x / fromIntegral leftTotal) ^ 2) leftCounts)
-    rightGini = 1 - sum (map (\x -> (fromIntegral x / fromIntegral rightTotal) ^ 2) rightCounts)
-    --- Vypočítá vážený průměr Giniho indexu
-    weightedGini = (fromIntegral leftTotal / fromIntegral (leftTotal + rightTotal)) * leftGini + (fromIntegral rightTotal / fromIntegral (leftTotal + rightTotal)) * rightGini
+    leftCounts = countClasses leftInput -- spočítám, kolik je jednotlivých tříd v levé skupině
+    rightCounts = countClasses rightInput -- počet jednotlivých tříd v pravé skupině
+    leftTotal = sum leftCounts -- celkově položek v levé skupině
+    rightTotal = sum rightCounts -- celkově položek v pravé skupině
+    leftGini = 1 - sum (map (calculateGiniSquare leftTotal) leftCounts) -- spočítám gini index levé skuoiny
+    rightGini = 1 - sum (map (calculateGiniSquare rightTotal) rightCounts) -- spočítám gini index pravé skupiny
+    weightedGini = (fromIntegral leftTotal / fromIntegral (leftTotal + rightTotal)) * leftGini + (fromIntegral rightTotal / fromIntegral (leftTotal + rightTotal)) * rightGini -- vážený průměr dle vzorečku
     in weightedGini
 
--- Funkce pro rozdělení vstupních dat
-splitData :: [String] -> ([String], [String])
-splitData input = splitAt 1 input
+-- TODO
 
 -- Hlavní funkce, která iteruje a vypočítává Giniho koeficienty
 calculateGiniIterations :: [String] -> [Double]
@@ -127,7 +133,7 @@ calculateGiniIterations inputData =
     moveFirstToSecond left (r:rs) = (left ++ [r], rs)
     moveFirstToSecond left [] = (left, [])  -- Tohle by se stát nemělo, ale je to pro jistotu
   in
-    iterateGini (splitData inputData) []
+    iterateGini (splitAt 1 inputData) []
 
 type GiniRecord = (Double, Int, Int) -- (GiniIndex, Pozice v poli, Číslo sloupce)
 
@@ -135,7 +141,7 @@ type GiniRecord = (Double, Int, Int) -- (GiniIndex, Pozice v poli, Číslo sloup
 calculateBestGini :: String -> GiniRecord
 calculateBestGini inputData = 
     let allLines = lines inputData
-        numColumns = length (splitBy ',' (head allLines)) -- Vyloučení sloupce s třídami
+        numColumns = length (splitOn "," (head allLines))
         -- Pomocná funkce pro iteraci přes sloupce a výpočet Giniho koeficientů
         iterateColumns :: Int -> GiniRecord -> GiniRecord
         iterateColumns column bestGini@(bestValue, _, _)
@@ -179,22 +185,6 @@ allSameClass :: [String] -> Bool
 allSameClass rows = all (== head classes) (tail classes)
   where classes = map getClass rows
 
--- Pomocná funkce pro rozdělení a analýzu skupin
-splitAndAnalyze :: [String] -> IO ()
-splitAndAnalyze inputData = do
-  unless (allSameClass inputData) $ do
-    let (averageValue, (_, position, column)) = averageBetweenRows (unlines inputData)
-    putStrLn $ "Průměr mezi dvěma řádky: " ++ show averageValue
-    let sortedData = sortLinesByColumn (unlines inputData) column
-    let sortedLines = lines sortedData
-    let (leftGroup, rightGroup) = splitAt (position + 1) sortedLines
-    
-    putStrLn "Zpracovávám levou skupinu:"
-    splitAndAnalyze leftGroup
-    
-    putStrLn "Zpracovávám pravou skupinu:"
-    splitAndAnalyze rightGroup
-
 
 splitDataByPosition :: String -> IO ()
 splitDataByPosition inputData = do
@@ -224,7 +214,6 @@ processData inputData depth = do
     putStrLn $ indentation ++ "Leaf: " ++ getClass (head inputData)
 
 
-
 main :: IO ()
 main = do
     args <- getArgs
@@ -233,7 +222,7 @@ main = do
             treeContent <- loadFile treeFile
             dataContent <- loadFile dataFile
             let transformedList = map createNodeData (addIndent (lines treeContent)) -- Každý uzel bude mít tento tvar: ("Node",0,"690.585",0) aka typ, index, hodnota, indent
-            let fixedDataContent = map (splitOn ",") (lines dataContent)
+            let fixedDataContent = map (splitOn ",") (lines dataContent) -- Rozdělím data na řádky a převedu každý na seznam
             let result = map (findLeaf transformedList) fixedDataContent
             mapM_ putStrLn result
         ("-2":dataFile:_) -> do -- Druhý podúkol
