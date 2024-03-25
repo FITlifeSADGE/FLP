@@ -1,14 +1,13 @@
-import System.IO
+import System.IO()
 import System.Environment
 import Data.List
 import Data.List.Split
-import Debug.Trace (trace)
+import Debug.Trace()
 import Data.Maybe
-import Data.Function
-import Text.Read 
+import Data.Function()
+import Text.Read()
 import Control.Monad
 import Data.Ord
-
 
 type NodeData = (String, Int, String, Int)
 
@@ -56,6 +55,7 @@ findLeaf :: [NodeData] -> [String] -> String
 findLeaf nodes numbers = findLeafIdk nodes (map read numbers :: [Double]) 0 0 -- Pošlu sem všechny uzly a čísla ze vstupu, první 0 značí, že nebudu skipovat nic, druhá 0 je odsazení, které hledám (0 je kořen)
 
 findLeafIdk :: [NodeData] -> [Double] -> Int -> Int -> String
+findLeafIdk [] _ _ _ = error "Nenalezeno"
 findLeafIdk ((typ, index, value, indent):xs) numbers skips indentToFind
   | typ == "Node" && comparisonNumber >= read value && skips == 0 && indent == indentToFind = 
       findLeafIdk xs numbers 1 (indent + 1) -- Pokud je hodnota na vstupu vyšší, než hodnota uzlu, posouvám se ve stromu doprava = hledám až 2. výskyt uzlu s odsazením + 1
@@ -70,36 +70,38 @@ findLeafIdk ((typ, index, value, indent):xs) numbers skips indentToFind
 
 ---- funkce pro druhý podúkol
 
-getColValue :: Int -> [String] -> Double
-getColValue column inputRow = read (inputRow !! (column - 1)) :: Double
+-- Funkce pro převod vstupního řetězce na seznam dvojic (konvertovaná hodnota, původní řádek)
+prepareData :: Int -> String -> [(Double, String)]
+prepareData column input = 
+    let rows = lines input
+        convertRow row = let values = splitOn "," row
+                             key = read (values !! (column - 1)) :: Double
+                         in (key, row)
+    in map convertRow rows
 
-convertToOneString :: [[String]] -> String
-convertToOneString idk = unlines $ map (intercalate ",") idk -- spojím seznam stringů podle znaku ',' a vytvořím jeden string
-
--- Seřadí řádky podle daného sloupce a vrátí je opět jako jeden dlouhý řetězec
+-- Funkce pro seřazení řádků podle hodnoty ve specifikovaném sloupci a jejich spojení do jednoho řetězce
 sortLinesByColumn :: String -> Int -> String
-sortLinesByColumn input column = let
-    linesList = lines input -- rozdělím na řádky
-    splitLines = map (splitOn ",") linesList -- rozdělím řádky na jednotlivá čísla
-    sortedLines = sortBy (comparing (getColValue column)) splitLines -- seřadím řádky podle daného sloupce
-  in convertToOneString sortedLines -- opět spojím řádky do jednoho řetězce
+sortLinesByColumn input column = 
+    let sortedRows = sortBy (comparing fst) $ prepareData column input
+    in unlines $ map snd sortedRows
 
----- sem se to seřadí podle daného sloupce
+-- sem se to seřadí podle daného sloupce
 
+-- vezmu název třídy
+getLastCol :: String -> String
+getLastCol input = reverse . takeWhile (/=',') $ reverse input -- abych nehledal poslední sloupec, otočím řádek a vezmu dokud nenarazím na ','
 
 ---- všechno možný pro výpočet gini indexu a výběr nejlepšího prahu
 countClasses :: [String] -> [Int]
 countClasses input = let
-    -- Vytvoří seznam tříd
-    classes = map (last . splitOn ",") input -- vytvoří něco takovýho ["Class10","Class4","Class4","Class7","Class6","Class6","Class3","Class10","Class1","Class5"]
-    -- Seřadí třídy a spočítá výskyty
+    classes = map getLastCol input -- vytvoří něco takovýho ["Class10","Class4","Class4","Class7","Class6","Class6","Class3","Class10","Class1","Class5"]
     sortedClasses = sort classes -- seřadím ["Class1","Class10","Class10","Class3","Class4","Class4","Class5","Class6","Class6","Class7"]
     groupedClasses = group sortedClasses -- seskupím stejné classy dohromady [["Class1"],["Class10","Class10"],["Class3"],["Class4","Class4"],["Class5"],["Class6","Class6"],["Class7"]]
     countedClasses = map length groupedClasses -- spočítám, kolik tam je jednotlivých tříd
     in countedClasses -- [1,2,1,2,1,2,1]
 
 calculateGiniSquare :: Int -> Int -> Double
-calculateGiniSquare total count = (fromIntegral count / fromIntegral total) ^ 2
+calculateGiniSquare total count = (fromIntegral count / fromIntegral total) ** 2.0
 
 -- V podstatě si rozdělím vstup na 2 skupiny, podle toho spočítám gini index a vrátím vážený průměr
 calculateGini :: [String] -> [String] -> Double
@@ -146,14 +148,17 @@ calculateBestGini inputData =
         iterateColumns :: Int -> GiniRecord -> GiniRecord
         iterateColumns column bestGini@(bestValue, _, _)
             | column >= numColumns = bestGini
+            | bestValue == 0 = bestGini  -- Kontrola, zda již byl nalezen nejlepší možný výsledek
             | otherwise =
                 let sortedData = sortLinesByColumn inputData column
                     giniResults = calculateGiniIterations (lines sortedData)
                     minValue = minimum giniResults
-                    minIndex = fromMaybe (-1) $ elemIndex minValue giniResults
-                in if minValue < bestValue
-                   then iterateColumns (column + 1) (minValue, minIndex, column)
-                   else iterateColumns (column + 1) bestGini
+                in if minValue == 0 
+                   then (0, fromMaybe (-1) $ findIndex (==0) giniResults, column)
+                   else let minIndex = fromMaybe (-1) $ elemIndex minValue giniResults
+                        in if minValue < bestValue
+                           then iterateColumns (column + 1) (minValue, minIndex, column)
+                           else iterateColumns (column + 1) bestGini
     in iterateColumns 1 (1, -1, -1) -- Inicializace s hodnotou Gini 1, což je větší než jakákoli možná hodnota
 
 --Funkce pro výpočet průměru mezi dvěma řádky
@@ -161,7 +166,7 @@ averageBetweenRows :: String -> (Double, GiniRecord)
 averageBetweenRows inputData = 
   let
     -- Volání funkce calculateBestGini a získání výsledků
-    giniRecord@(giniIndex, position, column) = calculateBestGini inputData
+    giniRecord@(_, position, column) = calculateBestGini inputData
     -- Seřazení řádků podle zjištěného optimálního sloupce
     sortedData = sortLinesByColumn inputData column
     sortedLines = lines sortedData
@@ -197,7 +202,7 @@ processData :: [String] -> Int -> IO ()
 processData inputData depth = do
   unless (allSameClass inputData || null inputData) $ do
     -- Předpokládejme, že averageBetweenRows je nyní upravena na IO operaci
-    let (averageValue, (giniIndex, position, column)) = averageBetweenRows (unlines inputData)
+    let (averageValue, (_, position, column)) = averageBetweenRows (unlines inputData)
     let indentation = replicate (depth * 2) ' '  -- Dvě mezery za každou úroveň hloubky
     putStrLn $ indentation ++ "Node: " ++ show (column - 1) ++ ", " ++ show averageValue
 
