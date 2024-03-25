@@ -70,19 +70,22 @@ findLeafIdk ((typ, index, value, indent):xs) numbers skips indentToFind
 
 ---- funkce pro druhý podúkol
 
--- Funkce pro převod vstupního řetězce na seznam dvojic (konvertovaná hodnota, původní řádek)
-prepareData :: Int -> String -> [(Double, String)]
-prepareData column input = 
-    let rows = lines input
-        convertRow row = let values = splitOn "," row
-                             key = read (values !! (column - 1)) :: Double
-                         in (key, row)
-    in map convertRow rows
+-- rovnou si vytvořím něco jako (857.88, "857.88,230.55,1041.12,498.01,1037.92,654.19,612.74,903.97,1026.55,147.14,Class10") pro 1
+getColValue :: Int -> String -> [(Double, String)]
+getColValue column input = 
+    map fixInput (lines input)
+    where
+      fixInput row = 
+        let values = splitOn "," row -- rozdělím na hodnoty
+            --key = read (values !! (column - 1)) :: Double -- vvezmu číslo na indexu
+            key = read (head (drop (column-1) values)) :: Double
+            --key = read (head(drop (column-1) values)) :: Double -- vvezmu číslo na indexu
+        in (key, row) -- vrátím dvojici
 
 -- Funkce pro seřazení řádků podle hodnoty ve specifikovaném sloupci a jejich spojení do jednoho řetězce
 sortLinesByColumn :: String -> Int -> String
-sortLinesByColumn input column = 
-    let sortedRows = sortBy (comparing fst) $ prepareData column input
+sortLinesByColumn input column =
+    let sortedRows = sortBy (comparing fst) $ getColValue column input
     in unlines $ map snd sortedRows
 
 -- sem se to seřadí podle daného sloupce
@@ -91,13 +94,16 @@ sortLinesByColumn input column =
 getLastCol :: String -> String
 getLastCol input = reverse . takeWhile (/=',') $ reverse input -- abych nehledal poslední sloupec, otočím řádek a vezmu dokud nenarazím na ','
 
+countOccurrences :: Eq a => [a] -> [Int]
+countOccurrences xs = map count (nub xs)
+  where
+    count x = length (filter (== x) xs)
+
 ---- všechno možný pro výpočet gini indexu a výběr nejlepšího prahu
 countClasses :: [String] -> [Int]
 countClasses input = let
     classes = map getLastCol input -- vytvoří něco takovýho ["Class10","Class4","Class4","Class7","Class6","Class6","Class3","Class10","Class1","Class5"]
-    sortedClasses = sort classes -- seřadím ["Class1","Class10","Class10","Class3","Class4","Class4","Class5","Class6","Class6","Class7"]
-    groupedClasses = group sortedClasses -- seskupím stejné classy dohromady [["Class1"],["Class10","Class10"],["Class3"],["Class4","Class4"],["Class5"],["Class6","Class6"],["Class7"]]
-    countedClasses = map length groupedClasses -- spočítám, kolik tam je jednotlivých tříd
+    countedClasses = countOccurrences classes -- [1,2,1,2,1,2,1]
     in countedClasses -- [1,2,1,2,1,2,1]
 
 calculateGiniSquare :: Int -> Int -> Double
