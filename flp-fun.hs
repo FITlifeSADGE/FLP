@@ -6,7 +6,6 @@ import Debug.Trace()
 import Data.Maybe
 import Data.Function()
 import Text.Read()
-import Control.Monad
 import Data.Ord
 
 type NodeData = (String, Int, String, Int)
@@ -164,62 +163,47 @@ iterateColumns inputData column numColumns bestGini
 
 -- TODO
 
---Funkce pro výpočet průměru mezi dvěma řádky
+-- truncate' :: Double -> Int -> Double -- ze SO
+-- truncate' x n = (fromIntegral (floor (x * t)) :: Double) / t -- zaokrouhlím na n desetinných míst
+--     where t = 10^(n :: Int)
+
 averageBetweenRows :: String -> (Double, GiniRecord)
 averageBetweenRows inputData = 
   let
-    -- Volání funkce calculateBestGini a získání výsledků
-    giniRecord@(_, position, column) = calculateBestGini inputData
-    -- Seřazení řádků podle zjištěného optimálního sloupce
-    sortedData = sortLinesByColumn inputData column
+
+    (_, position, column) = calculateBestGini inputData -- zjistím, kde je nejlepší index
+    sortedData = sortLinesByColumn inputData column -- seřadím data podle sloupce
     sortedLines = lines sortedData
-    -- Získání hodnot ze zadaných řádků
-    lineValue1 = read ((splitOn "," $ sortedLines !! position) !! (column-1)) :: Double
-    lineValue2 = read ((splitOn "," $ sortedLines !! (position + 1)) !! (column-1)) :: Double
-    -- Výpočet průměru mezi dvěma řádky
-    averageValueBefore = (lineValue1 + lineValue2) / 2
-    averageValue = (fromIntegral (round (averageValueBefore * 1000)) :: Double) / 1000
+    lineValue1 = read (head(drop (column-1) (splitOn "," (head (drop position sortedLines))))) :: Double -- získám hodnotu prvního ze dvou řádků
+    lineValue2 = read (head(drop (column-1) (splitOn "," (head (drop (position + 1) sortedLines))))) :: Double -- hodnota druhýho řádku
+    averageValueBefore = (lineValue1 + lineValue2) / 2 -- průměr těch dvou hodnot
+    --averageValue = truncate' averageValueBefore 3 -- podle testů zaokrouhlím na 3 desetinná
   in
-    -- Vrátí průměr všech průměrů - pokud chcete jinou agregaci, upravte tuto část
-    (averageValue, giniRecord)
+    (averageValueBefore, (0.0, position, column)) -- vrátím průměr mezi dvěma řádkama
 
-
--- Předpokládejme, že existuje funkce getClass, která vrací třídu řádku (poslední sloupec)
-getClass :: String -> String
-getClass = last . splitOn ","
-
--- Funkce pro kontrolu, zda všechny řádky v seznamu mají stejnou třídu
 allSameClass :: [String] -> Bool
-allSameClass rows = all (== head classes) (tail classes)
-  where classes = map getClass rows
+allSameClass rows = 
+  let 
+    classes = map getLastCol rows -- vezmu názvy tříd
+  in 
+    all (== head classes) (tail classes) -- zjistím, jestli jsou všechny třídy stejné
 
 
-splitDataByPosition :: String -> IO ()
-splitDataByPosition inputData = do
-  -- Rekurzivně zpracujte data a získáte levou a pravou skupinu
-  processData (lines inputData) 0 -- Začněte proces s celým seznamem řádků
-
-
-
-processData :: [String] -> Int -> IO ()
-processData inputData depth = do
-  unless (allSameClass inputData || null inputData) $ do
-    -- Předpokládejme, že averageBetweenRows je nyní upravena na IO operaci
-    let (averageValue, (_, position, column)) = averageBetweenRows (unlines inputData)
-    let indentation = replicate (depth * 2) ' '  -- Dvě mezery za každou úroveň hloubky
-    putStrLn $ indentation ++ "Node: " ++ show (column - 1) ++ ", " ++ show averageValue
-
+printTree :: [String] -> Int -> IO ()
+printTree inputData depth =
+  if allSameClass inputData then
+    putStrLn (replicate (depth * 2) ' ' ++ "Leaf: " ++ getLastCol (head inputData)) -- vytisknu list s mezerama podle hloubky depth
+  else do
+    let (averageValue, giniRecord) = averageBetweenRows (unlines inputData) -- zjistím nejlepší threshold
+    let (_, position, column) = giniRecord -- zjistím pozici a sloupec pro další rozdělení a správnej výtisk
+    putStrLn (replicate (depth * 2) ' ' ++ "Node: " ++ show (column - 1) ++ ", " ++ show averageValue) -- dost mezer, Node, sloupec nejlepšího gini indexu, threshold
+    
     let sortedData = sortLinesByColumn (unlines inputData) column
     let sortedLines = lines sortedData
-
-    let (leftGroup, rightGroup) = splitAt (position + 1) sortedLines
-
-    -- Rekurzivní zpracování levé a pravé skupiny
-    processData leftGroup (depth + 1)
-    processData rightGroup (depth + 1)
-  when (allSameClass inputData && not (null inputData)) $ do
-    let indentation = replicate (depth * 2) ' '  -- Dvě mezery za každou úroveň hloubky
-    putStrLn $ indentation ++ "Leaf: " ++ getClass (head inputData)
+    let (leftGroup, rightGroup) = splitAt (position + 1) sortedLines -- rozdělím na levou a pravou skupinu == podstromy
+    
+    printTree leftGroup (depth + 1)
+    printTree rightGroup (depth + 1)
 
 
 main :: IO ()
@@ -235,5 +219,5 @@ main = do
             mapM_ putStrLn result
         ("-2":dataFile:_) -> do -- Druhý podúkol
             dataContent <- loadFile dataFile
-            splitDataByPosition dataContent
+            printTree (lines dataContent) 0
         _ -> putStrLn "Nespravne argumenty"
