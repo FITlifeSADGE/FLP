@@ -77,12 +77,10 @@ getColValue column input =
     where
       fixInput row = 
         let values = splitOn "," row -- rozdělím na hodnoty
-            --key = read (values !! (column - 1)) :: Double -- vvezmu číslo na indexu
-            key = read (head (drop (column-1) values)) :: Double
-            --key = read (head(drop (column-1) values)) :: Double -- vvezmu číslo na indexu
+            key = read (head (drop (column-1) values)) :: Double -- vezmu číslo na indexu
         in (key, row) -- vrátím dvojici
 
--- Funkce pro seřazení řádků podle hodnoty ve specifikovaném sloupci a jejich spojení do jednoho řetězce
+-- seřadím řádky a vrátím zas jak jeden dlouhej string
 sortLinesByColumn :: String -> Int -> String
 sortLinesByColumn input column =
     let sortedRows = sortBy (comparing fst) $ getColValue column input
@@ -97,7 +95,7 @@ getLastCol input = reverse . takeWhile (/=',') $ reverse input -- abych nehledal
 countOccurrences :: Eq a => [a] -> [Int]
 countOccurrences xs = map count (nub xs)
   where
-    count x = length (filter (== x) xs)
+    count x = length (filter (== x) xs) -- spočítám počet výskytů x v původním seznamu
 
 ---- všechno možný pro výpočet gini indexu a výběr nejlepšího prahu
 countClasses :: [String] -> [Int]
@@ -121,51 +119,50 @@ calculateGini leftInput rightInput = let
     weightedGini = (fromIntegral leftTotal / fromIntegral (leftTotal + rightTotal)) * leftGini + (fromIntegral rightTotal / fromIntegral (leftTotal + rightTotal)) * rightGini -- vážený průměr dle vzorečku
     in weightedGini
 
--- TODO
 
--- Hlavní funkce, která iteruje a vypočítává Giniho koeficienty
-calculateGiniIterations :: [String] -> [Double]
-calculateGiniIterations inputData =
+-- Přesunu řádek z pravé skupiny do levé
+moveRightToLeft :: [String] -> [String] -> ([String], [String])
+moveRightToLeft left (r:rs) = (left ++ [r], rs)
+moveRightToLeft _ [] = error "neco se pokazilo"
+
+-- Přesouvám řádky a počítám Gini index
+iterateGini :: ([String], [String]) -> [Double]
+iterateGini (_, []) = []
+iterateGini (left, right) =
   let
-    -- Rekurzivní funkce pro iteraci
-    iterateGini :: ([String], [String]) -> [Double] -> [Double]
-    iterateGini (_ , []) result = result  -- Když je pravá strana prázdná, skončíme
-    iterateGini (left, right) result =
-      let
-        gini = calculateGini left right
-        (newLeft, newRight) = moveFirstToSecond left right
-      in iterateGini (newLeft, newRight) (result ++ [gini])
-    
-    -- Funkce pro přesun prvního prvku z pravé strany na levou
-    moveFirstToSecond :: [String] -> [String] -> ([String], [String])
-    moveFirstToSecond left (r:rs) = (left ++ [r], rs)
-    moveFirstToSecond left [] = (left, [])  -- Tohle by se stát nemělo, ale je to pro jistotu
-  in
-    iterateGini (splitAt 1 inputData) []
+    gini = calculateGini left right -- spočítám gini index pro tohle rozdělení
+    moved = moveRightToLeft left right -- přesunu řádek z pravé skupiny do levé
+  in gini : iterateGini moved -- vytvářím seznam gini indexů pro všechny možný rozdělení
+
+calculateGiniIterations :: [String] -> [Double]
+calculateGiniIterations inputData = iterateGini (splitAt 1 inputData)
 
 type GiniRecord = (Double, Int, Int) -- (GiniIndex, Pozice v poli, Číslo sloupce)
 
--- Spočítá nejlepší Giniho index
+-- Hlavní funkce pro výpočet nejlepšího Giniho koeficientu
 calculateBestGini :: String -> GiniRecord
-calculateBestGini inputData = 
+calculateBestGini inputData =
     let allLines = lines inputData
         numColumns = length (splitOn "," (head allLines))
-        -- Pomocná funkce pro iteraci přes sloupce a výpočet Giniho koeficientů
-        iterateColumns :: Int -> GiniRecord -> GiniRecord
-        iterateColumns column bestGini@(bestValue, _, _)
-            | column >= numColumns = bestGini
-            | bestValue == 0 = bestGini  -- Kontrola, zda již byl nalezen nejlepší možný výsledek
-            | otherwise =
-                let sortedData = sortLinesByColumn inputData column
-                    giniResults = calculateGiniIterations (lines sortedData)
-                    minValue = minimum giniResults
-                in if minValue == 0 
-                   then (0, fromMaybe (-1) $ findIndex (==0) giniResults, column)
-                   else let minIndex = fromMaybe (-1) $ elemIndex minValue giniResults
-                        in if minValue < bestValue
-                           then iterateColumns (column + 1) (minValue, minIndex, column)
-                           else iterateColumns (column + 1) bestGini
-    in iterateColumns 1 (1, -1, -1) -- Inicializace s hodnotou Gini 1, což je větší než jakákoli možná hodnota
+    in iterateColumns inputData 1 numColumns (1, -1, -1) -- Začnu s hodnotou indexu 1, protože vyšší už nic nebude (snad)
+
+iterateColumns :: String -> Int -> Int -> GiniRecord -> GiniRecord
+iterateColumns inputData column numColumns bestGini
+    | column >= numColumns = bestGini -- pokud už jsem na sloupci s názvama tříd, nepokračuju dál
+    | let (lowestGini, _, _) = bestGini, lowestGini == 0 = bestGini -- Pokud je gini index 0, nebudeme iterovat dál
+    | otherwise =
+        let (lowestGini, _, _) = bestGini -- vezmu nejmenší index
+            sortedData = sortLinesByColumn inputData column
+            giniResults = calculateGiniIterations (lines sortedData)
+            minValue = minimum giniResults -- spočítám nový nejmenší index
+            minIndex = fromMaybe (-1) (elemIndex minValue giniResults) -- uložím pozici nového nejmenšího indexu, musím použít fromMaybe, protože elemIndex mi vrací Maybe Int
+        in if minValue == 0 -- pokud je nový index 0, rovnou končím
+           then (0, minIndex, column)
+           else if minValue < lowestGini
+                then iterateColumns inputData (column + 1) numColumns (minValue, minIndex, column) -- pokud je nový index menší, stane se z něj bestGini
+                else iterateColumns inputData (column + 1) numColumns bestGini
+
+-- TODO
 
 --Funkce pro výpočet průměru mezi dvěma řádky
 averageBetweenRows :: String -> (Double, GiniRecord)
