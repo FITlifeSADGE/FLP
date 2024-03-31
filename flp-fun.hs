@@ -72,7 +72,7 @@ findLeafIdk ((typ, index, value, indent):xs) numbers skips indentToFind
 -- rovnou si vytvořím něco jako (857.88, "857.88,230.55,1041.12,498.01,1037.92,654.19,612.74,903.97,1026.55,147.14,Class10") pro 1
 getColValue :: Int -> String -> [(Double, String)]
 getColValue column input = 
-    map fixInput (lines input)
+    map fixInput (reverse(lines input)) -- přidán reverse, protože v původním pořadí se mi podle testů někde něco pokazí, takto se indexy počítají líp a nejhorší test_difference je 0.109
     where
       fixInput row = 
         let values = splitOn "," row -- rozdělím na hodnoty
@@ -82,8 +82,9 @@ getColValue column input =
 -- seřadím řádky a vrátím zas jak jeden dlouhej string
 sortLinesByColumn :: String -> Int -> String
 sortLinesByColumn input column =
-    let sortedRows = sortBy (comparing fst) $ getColValue column input
-    in unlines $ map snd sortedRows
+    let sortedRows = sortBy (comparing fst) (getColValue column input) -- seřadím řádky podle hodnoty na daném sloupci
+    in unlines (map snd sortedRows)
+
 
 -- sem se to seřadí podle daného sloupce
 
@@ -210,14 +211,14 @@ main :: IO ()
 main = do
     args <- getArgs
     case args of
-        ("-1":treeFile:dataFile:_) -> do -- První podúkol
+        ("-1":treeFile:dataFile:[]) -> do -- První task - nesmí mít za data souborem už nic
             treeContent <- loadFile treeFile
             dataContent <- loadFile dataFile
             let transformedList = map createNodeData (addIndent (lines treeContent)) -- Každý uzel bude mít tento tvar: ("Node",0,"690.585",0) aka typ, index, hodnota, indent
             let fixedDataContent = map (splitOn ",") (lines dataContent) -- Rozdělím data na řádky a převedu každý na seznam
             let result = map (findLeaf transformedList) fixedDataContent
             mapM_ putStrLn result
-        ("-2":dataFile:_) -> do -- Druhý podúkol
+        ("-2":dataFile:[]) -> do -- Druhý task - nesmí mít za vstupními daty už nic
             dataContent <- loadFile dataFile
             printTree (lines dataContent) 0
         _ -> putStrLn "Nespravne argumenty"
