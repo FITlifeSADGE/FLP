@@ -42,100 +42,94 @@ comb(N,[_|T],Comb) :-
     N>0,
     comb(N,T,Comb).
 
+/* Odstraní druhý prvek z každého řádku (po vsuput mám [A, ,B], chci jen [A,B]) */
 remove_second([], []).
 remove_second([[A, _, B | Rest]|Tail], [[A, B | Rest]|ResultTail]) :-
     remove_second(Tail, ResultTail).
 
-%% naše řešení %%%
 
 
-
-/*ZKUSIT PŘEPSAT ABY TO NEBYLO SUS*/
-
-replace_brackets([], []). % Pokud je vstup prázdný seznam, výstup bude také prázdný seznam.
-
-replace_brackets([InnerList|RestInput], [ReplacedInnerList|RestOutput]) :-
-    % Nahradíme vnitřní hranaté závorky v InnerList za kulaté závorky v ReplacedInnerList
-    replace_brackets_in_list(InnerList, ReplacedInnerList),
-    % Rekurzivně pokračujeme s dalšími prvky vstupního seznamu.
-    replace_brackets(RestInput, RestOutput).
-
-replace_brackets_in_list([], []). % Pokud je vstup prázdný seznam, výstup bude také prázdný seznam.
-
-replace_brackets_in_list([InnerTuple|RestInput], [ReplacedInnerTuple|RestOutput]) :-
-    % Nahradíme vnitřní hranaté závorky v InnerTuple za kulaté závorky v ReplacedInnerTuple
-    replace_brackets_in_tuple(InnerTuple, ReplacedInnerTuple),
-    % Rekurzivně pokračujeme s dalšími prvky vstupního seznamu.
-    replace_brackets_in_list(RestInput, RestOutput).
-
-replace_brackets_in_tuple([], []). % Pokud je vstup prázdný seznam, výstup bude také prázdný seznam.
-
-replace_brackets_in_tuple([X,Y], (X,Y)) :- !. % Pokud máme dvojici [X,Y], nahradíme ji (X,Y).
-
-% Rekurzivně pokračujeme s dalšími prvky n-tice.
-replace_brackets_in_tuple([Head|Tail], (Head,ReplacedTail)) :-
-    replace_brackets_in_tuple(Tail, ReplacedTail).
 
 /* Dostane seznam grafů a vrací řádky, které neobsahují cykly */
-get_line([], _, []).
-get_line([H|T], Sorted, KOKOT) :- get_line(T, Sorted, KOMAR), 
-find_vertices(H, Sorted, JANEVIM),
-    ( 
-        \+ JANEVIM, KOKOT = [H|KOMAR];
-        KOKOT = KOMAR
+get_line([], _, []).  
+get_line([A|B], Sorted, Result) :-
+    get_line(B, Sorted, TailResult),  % Zkontroluji zbytek grafl
+    find_cycle(A, Sorted, Cycle),  % Kontrola grafu A
+    (
+        \+ Cycle,  % Graf A neměl cyklus
+        Result = [A|TailResult];   % Přidá graf k výsledku
+        Result = TailResult  % Graf A měl cyklus -> nepřidávám
     ).
 
-% dostane řádek grafu, seznam vrcholů a vrací, zda obsahuje všechny vrcholy
-find_vertices(_, [], false).
-find_vertices(Row, [A|B], JANEVIM) :- remove_cycle([A], Row, Picus),
-    (   \+ Picus, find_vertices(Row, B, JANEVIM);
-        JANEVIM = true
-        
+/* Dostane řádek grafu a seznam vrcholů, vrací Bool, zda řádek obsahuje všechny vrcholy */
+find_cycle(_, [], false).  % Když není žádný vrchol k ověření, vrací false
+find_cycle(Row, [A|B], Cycle) :-
+    remove_cycle([A], Row, CycleFound),  % Zkontroluje, zda je cyklus s vrcholem A
+    (
+        \+ CycleFound,  % Pokud není cyklus s vrcholem A
+        find_cycle(Row, B, Cycle);  % Pokračuje s dalšími vrcholy
+        Cycle = true  % Nastaví, že řádek obsahuje cyklus
     ).
 
 
-/*Zjistí, jestli je A v B(Visited)*/
-is_visited(A, [A|_]) :- !.
-is_visited(A, [_|T]) :- is_visited(A, T).
-
-/*řádek, seznam visited -> vrací Bool*/
 % Vrací true, pokud řádek obsahuje cyklus, jinak false.
-remove_cycle([A|B], Row, Picus) :-   
-    remove_specific_neighbor(A, Row, Res),
-    find_neighbour(A, Row, Neighbour),
-    (   \+ is_visited(A, B), branching([A|B], Neighbour, Res, Picus);
-        Picus = true  
+remove_cycle([A|B], Row, Cycle) :-
+    process_vertex(A, B, Row, Cycle). % spustí prohledávání vrcholů
+
+% Postupně prohledám vrcholy
+process_vertex(Vertex, Visited, Row, Cycle) :-
+    remove_specific_neighbor(Vertex, Row, Result),  % Odstraním všechny hrany s vrcholem A a zbytek uložím do Result
+    find_neighbour(Vertex, Row, Neighbors),  % Najdu z původního řádku všechny sousední vrcholy vrcholu A
+    check_cycle(Vertex, Visited, Neighbors, Result, Cycle).
+
+check_cycle(Vertex, Visited, Neighbors, Result, Cycle) :-
+    (   \+ memberchk(Vertex, Visited) ->  % Pokud jsem ještě nebyl ve vrcholu A, hledám dál ve zbytku (bez hran s vrcholem A)
+        branching([Vertex|Visited], Neighbors, Result, Cycle);   
+        Cycle = true  % Už jsem byl ve vrcholu A, teda mám cyklus a vracím true
     ).
 
 /*dostane visited, neighbours, row, vraci Bool*/
-% provádí prohledávání do hloubky grafu a zjišťuje, zda existuje cyklus.
-branching(_, [], _, false).
-branching(Visited, [A|B], Row, ResBranching) :- 
-    remove_cycle([A|Visited], Row, ResRemove),
-    (   \+ ResRemove, branching([A|Visited], B, Row, ResBranching);
-        ResBranching = true
-    ).
+branching(_, [], _, false). % Pokud jsem už prošel všechny sousedy, vracím false.
+branching(Visited, [A|B], Row, Cycle) :- % Mám seznam navštívených vrcholů, sousedy, jeden řádek grafu
+    check_specific_neighbor(A, Visited, B, Row, Cycle). 
+
+check_specific_neighbor(Vertex, Visited, RemainingNeighbors, Row, Cycle) :-
+    remove_cycle([Vertex|Visited], Row, CycleFound),  % Zkoumá cyklus s vrcholem Vertex jako aktuálním vrcholem
+    check_for_cycle(Vertex, Visited, RemainingNeighbors, Row, CycleFound, Cycle). % Podle výsledku remove_cycle rozhodnu dál
+
+check_for_cycle(Vertex, Visited, RemainingNeighbors, Row, false, Cycle) :-
+    branching([Vertex|Visited], RemainingNeighbors, Row, Cycle).  % CycleFound byl false, hledám dál
+check_for_cycle(_, _, _, _, true, true). % CycleFound byl true, vracím true
+
 
 % Získá kostru grafu a jeden vrchol, odstraní všechny hrany, které vedou do tohoto vrcholu.
-remove_specific_neighbor(_, [], []).  % Prázdný seznam vstupů vede na prázdný seznam výstupů.
-remove_specific_neighbor(Neighbor, [(A,Neighbor)|Arr], Res) :- remove_specific_neighbor(Neighbor, Arr, ResTail), Res = ResTail.
-remove_specific_neighbor(Neighbor, [(Neighbor,A)|Arr], Res) :- remove_specific_neighbor(Neighbor, Arr, ResTail), Res = ResTail.
-remove_specific_neighbor(Neighbor, [(X,Y)|Arr], [(X,Y)|Res]) :- Neighbor \= Y, Neighbor \= X, remove_specific_neighbor(Neighbor, Arr, Res).
+remove_specific_neighbor(_, [], []).  % Prázdný seznam na vstupu vrací prázdný seznam.
+remove_specific_neighbor(Neigh, [[Neigh, _]|Rest], Result) :- % Pokud mám na vstupu například 'a' a hranu 'a-b', tuto hranu odstraním
+    remove_specific_neighbor(Neigh, Rest, TailResult), % Rekurzivně hledám sousedy vrcholu ve zbytku seznamu
+    Result = TailResult. % Do výsledku nepřidávám momentální hranu.
+remove_specific_neighbor(Neigh, [[_, Neigh]|Rest], Result) :- % Pokud mám na vstupu například 'a' a hranu 'b-a', tuto hranu odstraním
+    remove_specific_neighbor(Neigh, Rest, TailResult), % Rekurzivně hledám sousedy vrcholu ve zbytku seznamu
+    Result = TailResult. % Do výsledku nepřidávám momentální hranu.
+remove_specific_neighbor(Neigh, [[X, Y]|Rest], Result) :- % Pokud mám na vstupu například 'a' a hranu 'b-c', hranu 'b-c' přidám do výsledku
+    remove_specific_neighbor(Neigh, Rest, TailResult), % Rekurzivně hledám sousedy vrcholu ve zbytku seznamu
+    Result = [[X, Y]|TailResult]. % Do výsledku přidávám momentální hranu.
 
 % Získá kostru grafu a jeden vrchol, vrátí všechny jeho sousedy.
-find_neighbour(_, [], []).  % Prázdný seznam vstupů vede na prázdný seznam výstupů.
-find_neighbour(A, [(A,X)|Arr], Res) :- find_neighbour(A, Arr, ResTail), Res = [X|ResTail].
-find_neighbour(A, [(X,A)|Arr], Res) :- find_neighbour(A, Arr, ResTail), Res = [X|ResTail].
-find_neighbour(A, [(X,Y)|Arr], Res) :- A \= X, A \= Y, find_neighbour(A, Arr, Res).  % Přidáno pro zachování struktury, kdy A není součástí dvojice.
-find_neighbour(A, [X|Arr], Res) :- A \= X, find_neighbour(A, Arr, Res).  % Přidáno pro zachování ostatních prvků, které nejsou dvojice.
+find_neighbour(_, [], []).  % Prázdný seznam na vstupu vrací prázdný seznam.
+find_neighbour(A, [[A, X]|Rest], Result) :- % Pokud mám na vstupu například 'a' a hranu 'a-b', do výsledku přidám 'b'
+    find_neighbour(A, Rest, TailResult), % Rekurzivně hledám sousedy ve zbytku hran.
+    Result = [X|TailResult]. % Do výslednýho seznamu dám vždy souseda
+find_neighbour(A, [[X, A]|Rest], Result) :- % Pokud mám na vstupu například 'a' a hranu 'b-a', do výsledku přidám 'b'
+    find_neighbour(A, Rest, TailResult), % Rekurzivně hledám sousedy ve zbytku hran.
+    Result = [X|TailResult]. % Do výslednýho seznamu dám vždy souseda
+find_neighbour(A, [[X, Y]|Rest], Result) :- % Pokud má mna vstupu například 'a' a hranu 'b-c', do výsledku nic nepřidám
+    find_neighbour(A, Rest, Result). % Rekurzivně hledám sousedy ve zbytku hran.
 
 
-% Prints single spanning tree in the specified format
 printTree([]).
-printTree([(A,B), (C,D)|Tail]) :- format('~w-~w ', [A, B]), printTree([(C,D)|Tail]).
-printTree([(A,B)|Tail]) :- format('~w-~w\n', [A, B]), printTree(Tail).
+printTree([[A,B], [C,D]|Tail]) :- format('~w-~w ', [A, B]), printTree([[C,D]|Tail]).
+printTree([[A,B]|Tail]) :- format('~w-~w\n', [A, B]), printTree(Tail).
 
-/*PO SEM ZKUSIT PŘEPSAT*/
 
 start :-
 		prompt(_, ''),
@@ -145,7 +139,6 @@ start :-
         sort(Flat, Sorted), % odstraní duplikáty
         length(Sorted, Length), % zjistí počet prvků
         findall_combinations((Length-1), NewLL, Comb), % vytvoří kombinace o délce N - 1
-        replace_brackets(Comb, Replaced), % nahradí hranaté závorky za kulaté
-        get_line(Replaced, Sorted, KOKOT), % zjistí, jestli je v grafu cyklus
+        get_line(Comb, Sorted, KOKOT), % zjistí, jestli je v grafu cyklus
         maplist(printTree, KOKOT) ; true.
         
